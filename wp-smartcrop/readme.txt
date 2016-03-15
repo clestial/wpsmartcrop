@@ -1,6 +1,6 @@
 === WP SmartCrop ===
 Contributors: wpsmartcrop
-Tags: image, crop, cropping, resize, aspect ratio, fit, size, advanced, simple, media, library, photography, featured image, content, responsive, design
+Tags: image, crop, cropping, resize, aspect ratio, fit, size, advanced, simple, media, library, photography, featured image, content, responsive, design, smart, intelligent, live
 Requires at least: 3.5.0
 Tested up to: 4.3
 Stable tag: trunk
@@ -83,7 +83,7 @@ A. That's not really a question, but at least our moms like us. Feel free to sen
 
 2. The additions to the Media Library interface.
 
-3. Adding the Custom Fields to a page and hiding the default meta boxes
+3. Same additions shown in the Insert Media pane.
 
 
 == Changelog ==
