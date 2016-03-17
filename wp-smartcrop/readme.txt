@@ -14,6 +14,10 @@ WP SmartCrop will crop your images on-the-fly to match your CSS, keeping the mai
 
 WP SmartCrop allows you to set the 'focal point' of any image, right from the media library, then crops your images to match your css rules *(no more squished aspect ratios)*, keeping that focal point, not only in view, but as near as possible to a 'rule of thirds' position in the image.  The results are powerful, composed photos at any screen size, with any constraints.
 
+---
+Learn More at: **[http://www.wpsmartcrop.com/](http://www.wpsmartcrop.com)**
+---
+
 * Visually select your images' focal points with an intuitive click-based interface
 * Quickly enable or disable smart-cropping on a per-image basis.
 * Easily target only the images you want to style, with the *img.wpsmartcrop-image* selector
@@ -22,9 +26,26 @@ WP SmartCrop allows you to set the 'focal point' of any image, right from the me
 * Lightweight and fast processing of images, even inside post content
 * Fully compatible with common caching and optimization plugins and solutions, such as W3 Total Cache, Wordfence, WPEngine's EverCache, Better Wordpress Minify, and Google's PageSpeed Module.
 * Lets you take full advantage of the new responsive srcset features added in Wordpress 4.4, to make the most of your images.
+* **NEW!** Legacy support for existing cropped thumb sizes allows you to see improvements, right out of the box, without changing your CSS!
 
 == Installation ==
-1. Install and activate the WP SmartCrop plugin
+You can use the built in installer and upgrader, or you can install the plugin
+manually.
+
+= From your WordPress dashboard =
+
+1. Visit 'Plugins > Add New'
+1. Search for 'WP SmartCrop'
+1. Activate WP SmartCrop from your Plugins page.
+
+= From WordPress.org =
+
+1. Download WP SmartCrop.
+1. Upload the 'wp-smartcrop' directory to your '/wp-content/plugins/' directory, using your favorite method (ftp, sftp, scp, etc...)
+1. Activate WP SmartCrop from your Plugins page.
+
+= Once Activated =
+
 1. Upload images to your Media Library
 1. Select an image in the library, so that image details appear on the right
 1. Check the *Enable Smart Cropping* checkbox.
@@ -87,6 +108,9 @@ A. That's not really a question, but at least our moms like us. Feel free to sen
 
 
 == Changelog ==
+
+= 1.1.0 =
+* Recrop existing cropped thumbnail sizes to match focal point
 
 = 1.0.0 =
 * Initial Release

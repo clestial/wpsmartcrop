@@ -28,65 +28,59 @@ jQuery(document).ready(function($) {
 		var target_ratio  = target_dims[0]/target_dims[1];
 		if( natural_ratio > target_ratio ) {
 			return [
-				target_dims[1] * natural_ratio,
+				Math.round(target_dims[1] * natural_ratio),
 				target_dims[1]
 			];
 		}
 		return [
 			target_dims[0],
-			target_dims[0] / natural_ratio
+			Math.round(target_dims[0] / natural_ratio)
 		];
 	}
 
 	function get_crop_data($el) {
-		var target_focus_positions = [33, 50, 67];
+		var get_smartcrop_offset = function(dim, orig_dim, focus_pos) {
+			console.log(dim, orig_dim, focus_pos);
+			var power_lines = [.33333, .5, .66667];
+			focus_pos = focus_pos / 100;
+			var focus_target = closest(focus_pos, power_lines);
+			var offset = Math.round(focus_pos * orig_dim - focus_target * dim);
+			var max = orig_dim - dim;
+			if(offset > max) {
+				offset = max;
+			}
+			if(offset < 0) {
+				offset = 0;
+			}
+			return -1 * offset;
+		}
 		var focal_point  = $el.data('smartcrop-focus');
 		var natural_dims = [
 			( $el[0].naturalWidth  ) ? $el[0].naturalWidth  : $el[0].getAttribute('width'),
 			( $el[0].naturalHeight ) ? $el[0].naturalHeight : $el[0].getAttribute('height')
 		];
-		if( !natural_dims[0] || !natural_dims[1] ) {
-			return false;
-		}
 		var target_dims  = [
 			$el.width(),
 			$el.height()
 		];
-		if( !target_dims[0] || !target_dims[1] ) {
+		if( !focal_point || !focal_point[0] || !focal_point[1] ||
+		    !natural_dims[0] || !natural_dims[1] ||
+		    !target_dims[0] || !target_dims[1] ) {
 			return false;
 		}
-		var target_focus = [
-			closest( focal_point[0], target_focus_positions ) / 100,
-			closest( focal_point[1], target_focus_positions ) / 100
-		];
 		var final_dims = get_final_image_dims( natural_dims, target_dims );
-		if( final_dims[0]/final_dims[1] == target_dims[0]/target_dims[1] ) {
-			offsets = [0,0];
+		var offsets = [0,0]
+		console.log(natural_dims, target_dims, final_dims);
+		if( target_dims[0]/target_dims[1] < final_dims[0]/final_dims[1] ) {
+			offsets[0] = get_smartcrop_offset(target_dims[0], final_dims[0], focal_point[0]);
 		} else {
-			var offsets = [
-				target_focus[0] * target_dims[0] - focal_point[0] / 100 * final_dims[0],
-				target_focus[1] * target_dims[1] - focal_point[1] / 100 * final_dims[1]
-			];
-			if(offsets[0] < -1 * ( final_dims[0] - target_dims[0] ) ) {
-				offsets[0] = -1 * ( final_dims[0] - target_dims[0] );
-			}
-			if(offsets[1] < -1 * ( final_dims[1] - target_dims[1] ) ) {
-				offsets[1] = -1 * ( final_dims[1] - target_dims[1] );
-			}
-			if(offsets[0] > 0) {
-				offsets[0] = 0;
-			}
-			if(offsets[1] > 0) {
-				offsets[1] = 0;
-			}
+			offsets[1] = get_smartcrop_offset(target_dims[1], final_dims[1], focal_point[1]);
 		}
 		return {
-			//target_width : target_dims[0],
-			//target_height: target_dims[1],
 			final_width  : final_dims[0],
 			final_height : final_dims[1],
-			offset_x     : Math.round( offsets[0] ),
-			offset_y     : Math.round( offsets[1] )
+			offset_x     : offsets[0],
+			offset_y     : offsets[1]
 		};
 	}
 	function recrop_images( $el ) {

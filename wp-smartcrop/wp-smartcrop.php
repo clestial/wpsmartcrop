@@ -1,9 +1,9 @@
 <?php if(!defined('ABSPATH')) { die(); } // Include in all php files, to prevent direct execution
 /**
-  Plugin Name: WP Smart Crop
+  Plugin Name: WP SmartCrop
   Plugin URI: http://www.wpsmartcrop.com/
   Description: Style your images exactly how you want them to appear, for any screen size, and never get a cut-off face.
-  Version: 1.0.0
+  Version: 1.1.0
   Author: WP SmartCrop
   Author URI: http://www.wpsmartcrop.com
   License: GPLv2 or later
@@ -12,9 +12,13 @@
 
 if( !class_exists('WP_Smart_Crop') ) {
 	class WP_Smart_Crop {
-		private $version = '1.0.0';
-		private $plugin_dir;
+		private $version = '1.1.0';
+		private $plugin_dir_path;
+		private $plugin_dir_url;
+		private $current_image = null;
+		private $focus_cache;
 		private static $_this;
+		private $debug_mode = true;
 
 		public static function Instance() {
 			static $instance = null;
@@ -25,11 +29,20 @@ if( !class_exists('WP_Smart_Crop') ) {
 		}
 
 		private function __construct() {
-			$this->plugin_dir = plugin_dir_url( __FILE__ );
+			$this->plugin_dir_path = plugin_dir_path( __FILE__ );
+			$this->plugin_dir_url = plugin_dir_url( __FILE__ );
+			$this->focus_cache = array();
 			// Editor Functions
 			add_action( 'admin_head', array( $this, 'admin_head') );
 			add_filter( 'attachment_fields_to_edit', array( $this, 'attachment_fields_to_edit' ), 10, 2 );
 			add_action( 'edit_attachment', array( $this, 'edit_attachment' ) );
+
+			// Thumbnail Crop Functions (for legacy theme support and hard-crop applications)
+			add_filter( 'get_attached_file', array( $this, 'capture_attachment_id' ), 10, 2 );
+			add_filter( 'update_attached_file', array( $this, 'capture_attachment_id' ), 10, 2 );
+			add_filter( 'image_resize_dimensions', array( $this, 'image_resize_dimensions' ), 10, 6 );
+			add_filter( 'wp_generate_attachment_metadata', array( $this, 'wp_generate_attachment_metadata' ), 10, 2 );
+
 			// Display Functions
 			add_action( 'wp_enqueue_scripts', array( $this, 'wp_enqueue_scripts' ) );
 			add_filter( 'wp_get_attachment_image_attributes', array( $this, 'wp_get_attachment_image_attributes' ), PHP_INT_MAX, 3 );
@@ -67,7 +80,7 @@ if( !class_exists('WP_Smart_Crop') ) {
 				<input type="hidden"   class="wpsmartcrop_image_focus_left" name="attachments[<?php echo $post->ID; ?>][_wpsmartcrop_image_focus][left]" value="<?php echo $focus['left']; ?>" />
 				<input type="hidden"   class="wpsmartcrop_image_focus_top"  name="attachments[<?php echo $post->ID; ?>][_wpsmartcrop_image_focus][top]"  value="<?php echo $focus['top' ]; ?>" />
 				<em>Select a focal point for this image by clicking on the preview image</em>
-				<script src="<?php echo $this->plugin_dir;?>js/media-library.js" type="text/javascript"></script>
+				<script src="<?php echo $this->plugin_dir_url;?>js/media-library.js" type="text/javascript"></script>
 				<?php
 				$focal_point_html = ob_get_clean();
 				$form_fields = array(
@@ -85,23 +98,58 @@ if( !class_exists('WP_Smart_Crop') ) {
 			if( isset( $_REQUEST['attachments'] ) && isset( $_REQUEST['attachments'][$attachment_id] ) ) {
 				$attachment = $_REQUEST['attachments'][$attachment_id];
 
+				$old_enabled = get_post_meta( $attachment_id, '_wpsmartcrop_enabled', true );
+				$old_focus   = get_post_meta( $attachment_id, '_wpsmartcrop_image_focus', true );
+
 				if( isset( $attachment['_wpsmartcrop_enabled'] ) && $attachment['_wpsmartcrop_enabled'] == 1 ) {
-					update_post_meta( $attachment_id, '_wpsmartcrop_enabled', 1 );
+					$new_enabled = 1;
 				} else {
-					update_post_meta( $attachment_id, '_wpsmartcrop_enabled', 0 );
+					$new_enabled = false;
 				}
 				if( isset( $attachment['_wpsmartcrop_image_focus'] ) ) {
-					update_post_meta( $attachment_id, '_wpsmartcrop_image_focus', $attachment['_wpsmartcrop_image_focus'] );
+					$new_focus = $attachment['_wpsmartcrop_image_focus'];
 				} else {
-					update_post_meta( $attachment_id, '_wpsmartcrop_image_focus', false );
+					$new_focus = false;
+				}
+				if( ( $new_enabled != $old_enabled ) || ( serialize( $new_focus ) != serialize( $old_focus ) ) ) {
+					update_post_meta( $attachment_id, '_wpsmartcrop_enabled', $new_enabled );
+					update_post_meta( $attachment_id, '_wpsmartcrop_image_focus', $new_focus );
+					$this->regenerate_thumbnails( $attachment_id );
 				}
 			}
 		}
 
+		function capture_attachment_id( $file, $attachment_id ) {
+			$this->current_image = $attachment_id;
+			return $file;
+		}
+
+		function image_resize_dimensions( $old_val, $orig_w, $orig_h, $dest_w, $dest_h, $crop ) {
+			// if we aren't cropping or we have no id to work with, just return
+			if( $crop && $this->current_image ) {
+				// if we have no height or cropping is unnecessary, just return
+				if( ( $orig_h * $dest_h ) && ( $orig_w / $orig_h ) != ( $dest_w / $dest_h ) ) {
+					$id = $this->current_image;
+					$focus = get_post_meta( $id, '_wpsmartcrop_image_focus', true );
+					// if we aren't a smartcrop image, just return
+					if( $focus ) {
+						// now we can make some calculations
+						return $this->get_smartcrop_dimensions( $orig_w, $orig_h, $dest_w, $dest_h, $focus );
+					}
+				}
+			}
+			return $old_val;
+		}
+
+		function wp_generate_attachment_metadata( $metadata, $attachment_id ) {
+			$this->current_image = null;
+			return $metadata;
+		}
+
 		function wp_enqueue_scripts() {
 			wp_enqueue_script( 'jquery' );
-			wp_enqueue_script( 'wp-smart-crop-renderer', $this->plugin_dir . 'js/image-renderer.js', array( 'jquery' ), $this->version, true );
-			wp_enqueue_style( 'wp-smart-crop-renderer', $this->plugin_dir . 'css/image-renderer.css', array(), $this->version );
+			wp_enqueue_script( 'wp-smart-crop-renderer', $this->plugin_dir_url . 'js/image-renderer.js', array( 'jquery' ), $this->version, true );
+			wp_enqueue_style( 'wp-smart-crop-renderer', $this->plugin_dir_url . 'css/image-renderer.css', array(), $this->version );
 		}
 
 		function wp_get_attachment_image_attributes( $atts, $attachment, $size ) {
@@ -144,16 +192,120 @@ if( !class_exists('WP_Smart_Crop') ) {
 			return $content;
 		}
 
+		private function regenerate_thumbnails( $attachment_id ) {
+			$this->current_image = $attachment_id;
+			$path = get_attached_file( $attachment_id );
+			$this->delete_existing_cropped_thumbs( $attachment_id );
+			// hack for file_exists on windows servers
+			$path = str_replace( array( '/', '\\' ), DIRECTORY_SEPARATOR, $path );
+			if ( !$path || !file_exists( $path ) ) {
+				return;
+			}
+			$metadata = wp_generate_attachment_metadata( $attachment_id, $path );
+			if( !$metadata || is_empty( $metadata ) || is_wp_error( $metadata ) ) {
+				return;
+			}
+			wp_update_attachment_metadata( $attachment_id, $metadata );
+		}
+
+		private function delete_existing_cropped_thumbs( $attachment_id ) {
+			$metadata = wp_get_attachment_metadata( $attachment_id );
+			if( !is_array( $metadata ) ) {
+				return false;
+			}
+			$file = get_attached_file( $attachment_id );
+			// hack for file_exists on windows servers
+			$file = str_replace( array( '/', '\\' ), DIRECTORY_SEPARATOR, $file );
+			$basename = basename( $imagedata['file'] );
+			$folder = remove_postfix( $file, $basename );
+			foreach( $metadata['sizes'] as $size_name => $size_details ) {
+				if( $this->is_image_size_cropped( $size_name ) ) {
+					$thumb_path = $folder . $size_details['file'];
+					if( file_exists( $thumb_path ) ) {
+						unlink( $thumb_path );
+					}
+				}
+			}
+		}
+		private function remove_postfix($string, $postfix) {
+			if( substr( $string,-1 * strlen( $postfix ) ) === $postfix ) {
+				$string = substr( $string, 0, strlen( $string ) - strlen( $postfix ) );
+			}
+			return $string;
+		}
+
+		private function get_smartcrop_dimensions( $orig_w, $orig_h, $dest_w, $dest_h, $focus ) {
+			if( ( $orig_w / $orig_h ) > ( $dest_w / $dest_h ) ) {
+				$src_h = $orig_h;
+				$src_w = round( $dest_w * $orig_h / $dest_h );
+				$src_x = $this->get_smartcrop_offset( $src_w, $orig_w, $focus['left'] );
+				$src_y = 0;
+			} else {
+				$src_h = round( $dest_h * $orig_w / $dest_w );
+				$src_w = $orig_w;
+				$src_x = 0;
+				$src_y = $this->get_smartcrop_offset( $src_h, $orig_h, $focus['top'] );
+			}
+			$ret_val = array(
+				'dest_x' => 0,
+				'dest_y' => 0,
+				'src_x'  => $src_x,
+				'src_y'  => $src_y,
+				'dest_w' => $dest_w,
+				'dest_h' => $dest_h,
+				'src_w'  => $src_w,
+				'src_h'  => $src_h
+			);
+			return array_values( $ret_val );
+		}
+
+		private function get_smartcrop_offset( $dim, $orig_dim, $focus_pos ) {
+			$power_lines = array( .3333, .5, .6667 );
+			$focus_pos = $focus_pos / 100;
+			$focus_target = $this->get_closest( $focus_pos, $power_lines );
+			$offset = round( $focus_pos * $orig_dim - $focus_target * $dim );
+			$max = $orig_dim - $dim;
+			if( $offset > $max ) {
+				$offset = $max;
+			}
+			if( $offset < 0 ) {
+				$offset = 0;
+			}
+			return $offset;
+		}
+
+		private function get_closest( $search, $arr ) {
+			$closest = null;
+			foreach( $arr as $item ) {
+				if( $closest === null || abs( $search - $closest ) > abs( $search - $item ) ) {
+					$closest = $item;
+					if( $closest == $search ) {
+						break;
+					}
+				}
+			}
+			return $closest;
+		}
+
 		private function get_smartcrop_focus_attr( $id, $size ) {
-			// add an ID-keyed array cache here, so this function only has to run once per ID
+			// check cache
+			if( isset( $this->focus_cache[ $id ] ) && isset( $this->focus_cache[ $id ][ $size ] ) ) {
+				return $this->focus_cache[ $id ][ $size ];
+			}
 			if( !$this->is_image_size_cropped( $size ) ) {
 				if( get_post_meta( $id, '_wpsmartcrop_enabled', true ) == 1 ) {
 					$focus = get_post_meta( $id, '_wpsmartcrop_image_focus', true );
 					if( $focus && is_array( $focus ) && isset( $focus['left'] ) && isset( $focus['top'] ) ) {
-						return json_encode( array(
+						$ret_val = json_encode( array(
 							round( intval( $focus['left'] ), 2 ),
 							round( intval( $focus['top' ] ), 2 ),
 						) );
+						// load into cache
+						if( !isset( $this->focus_cache[ $id ] ) ) {
+							$this->focus_cache[ $id ] = array();
+						}
+						$this->focus_cache[ $id ][ $size ] = $ret_val;
+						return $ret_val;
 					}
 				}
 			}
@@ -170,8 +322,8 @@ if( !class_exists('WP_Smart_Crop') ) {
 			if( in_array( $size, array('thumbnail', 'medium', 'medium_large', 'large') ) ) {
 				return (bool) intval( get_option( $size . "_crop" ) );
 			}
-			// if we can't find the size, lets assume it isnt cropped... it's a guess
-			return false;
+			// if we can't find the size, lets assume it is cropped... it's a guess
+			return true;
 		}
 
 		private function extract_tags( $html, $tag, $selfclosing = null, $return_the_entire_tag = false, $charset = 'ISO-8859-1' ){
@@ -287,6 +439,29 @@ if( !class_exists('WP_Smart_Crop') ) {
 			}
 			$new_tag .= ' />';
 			return $new_tag;
+		}
+		private function debug($message) {
+			if( $this->debug_mode ) {
+				$debug = date('Y-m-d H:i:s') . " | ";
+
+				$backtrace = debug_backtrace();
+				$call = $backtrace[0];
+
+				// trim to plugin directory
+				$root = trim( $this->plugin_dir_path, '/' ) . DIRECTORY_SEPARATOR;
+				if( substr( $call['file'], 0, strlen( $root ) ) == $root ) {
+					$debug .= substr( $call['file'], strlen( $root ) );
+				} else {
+					$debug .= $call['file'];
+				}
+				$debug .= ' | ';
+				$debug .= 'Ln: ' . $call['line'] . ' | ';
+				$debug .= print_r($message, true);
+				$debug .= "\n";
+				$handle = fopen( $this->plugin_dir_path . "debug_log.txt", 'a' );
+				fwrite( $handle, $debug );
+				fclose( $handle );
+			}
 		}
 	}
 	WP_Smart_Crop::Instance();
