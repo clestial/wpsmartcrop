@@ -109,6 +109,9 @@ A. That's not really a question, but at least our moms like us. Feel free to sen
 
 == Changelog ==
 
+= 1.2.0 =
+* Add initial steps towards add-on friendliness
+
 = 1.1.0 =
 * Recrop existing cropped thumbnail sizes to match focal point
 

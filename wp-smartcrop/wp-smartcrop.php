@@ -12,12 +12,13 @@
 
 if( !class_exists('WP_Smart_Crop') ) {
 	class WP_Smart_Crop {
-		private $version = '1.1.0';
+		public  $version = '1.2.0';
 		private $plugin_dir_path;
 		private $plugin_dir_url;
 		private $current_image = null;
 		private $focus_cache;
-		private static $_this;
+		private $upload_focus = null;
+		private $upload_processors = false;
 		private $debug_mode = true;
 
 		public static function Instance() {
@@ -32,10 +33,15 @@ if( !class_exists('WP_Smart_Crop') ) {
 			$this->plugin_dir_path = plugin_dir_path( __FILE__ );
 			$this->plugin_dir_url = plugin_dir_url( __FILE__ );
 			$this->focus_cache = array();
+			// add_on options
+			add_action( 'admin_init', array( $this, 'register_upload_processor_stack' ) );
+			add_filter( 'wp_handle_upload', array( $this, 'wp_handle_upload' ) );
+			add_action( 'add_attachment' , array( $this, 'add_attachment'  ) );
+			add_action( 'edit_attachment', array( $this, 'edit_attachment' ) );
+
 			// Editor Functions
 			add_action( 'admin_head', array( $this, 'admin_head') );
 			add_filter( 'attachment_fields_to_edit', array( $this, 'attachment_fields_to_edit' ), 10, 2 );
-			add_action( 'edit_attachment', array( $this, 'edit_attachment' ) );
 
 			// Thumbnail Crop Functions (for legacy theme support and hard-crop applications)
 			add_filter( 'get_attached_file', array( $this, 'capture_attachment_id' ), 10, 2 );
@@ -47,6 +53,60 @@ if( !class_exists('WP_Smart_Crop') ) {
 			add_action( 'wp_enqueue_scripts', array( $this, 'wp_enqueue_scripts' ) );
 			add_filter( 'wp_get_attachment_image_attributes', array( $this, 'wp_get_attachment_image_attributes' ), PHP_INT_MAX, 3 );
 			add_filter( 'the_content', array( $this, 'the_content' ), PHP_INT_MAX );
+		}
+
+		function register_upload_processor_stack() {
+			$upload_processors = apply_filters( 'wp_smartcrop_announce_upload_processors', array() );
+			// THIS IS WHERE WE EVENTUALLY SORT THE STACK ON THE BACK END
+			$this->upload_processors = $upload_processors;
+		}
+
+		function wp_handle_upload( $file ) {
+			if( $this->upload_processors ) {
+				// make sure this is an image
+				if( substr( $file['type'], 0, 6 ) == 'image/' ) {
+					$editor = wp_get_image_editor( $file['file'] );
+					$resized = $editor->resize( 400, 400, true );
+					if( !is_wp_error( $resized ) ) {
+						$thumb_path = $editor->generate_filename( 'wpsmartcrop-processor' );
+						$saved = $editor->save( $thumb_path );
+						if( !is_wp_error( $saved ) ) {
+							$upload_dir = wp_upload_dir();
+							$thumb_url = $this->replace_prefix( $upload_dir['basedir'] , $upload_dir['baseurl'] , $thumb_path );
+							// hack in case of windows path silliness
+							$thumb_url = str_replace( '\\', '/', $thumb_url );
+							$thumb = array(
+								'path' => $thumb_path,
+								'url'  => $thumb_url
+							);
+							foreach( $this->upload_processors as $upload_processor ) {
+								$focus = call_user_func( $upload_processor, $thumb );
+								if( $focus ) {
+									break;
+								}
+							}
+							unlink( $thumb_path );
+
+							if( $focus ) {
+								$this->upload_focus = $focus;
+							}
+
+						}
+					}
+				}
+			}
+			return $file;
+		}
+
+		function add_attachment( $attachment_id ) {
+			if( $this->upload_focus ) {
+				$type = get_post_mime_type( $attachment_id );
+				if( substr( $type, 0, 6 ) == 'image/' ) {
+					update_post_meta( $attachment_id, '_wpsmartcrop_enabled', 1 );
+					update_post_meta( $attachment_id, '_wpsmartcrop_image_focus', $this->upload_focus );
+				}
+				$this->upload_focus = null;
+			}
 		}
 
 		function admin_head() {
@@ -192,6 +252,13 @@ if( !class_exists('WP_Smart_Crop') ) {
 			return $content;
 		}
 
+		private function replace_prefix( $find, $replace, $string ) {
+			if (substr($string, 0, strlen($find)) == $find) {
+				$string = $replace . substr($string, strlen($find));
+			}
+			return $string;
+		}
+
 		private function regenerate_thumbnails( $attachment_id ) {
 			$this->current_image = $attachment_id;
 			$path = get_attached_file( $attachment_id );
@@ -227,6 +294,7 @@ if( !class_exists('WP_Smart_Crop') ) {
 				}
 			}
 		}
+
 		private function remove_postfix($string, $postfix) {
 			if( substr( $string,-1 * strlen( $postfix ) ) === $postfix ) {
 				$string = substr( $string, 0, strlen( $string ) - strlen( $postfix ) );
@@ -440,6 +508,7 @@ if( !class_exists('WP_Smart_Crop') ) {
 			$new_tag .= ' />';
 			return $new_tag;
 		}
+
 		private function debug($message) {
 			if( $this->debug_mode ) {
 				$debug = date('Y-m-d H:i:s') . " | ";
