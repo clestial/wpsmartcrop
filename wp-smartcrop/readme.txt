@@ -111,6 +111,7 @@ A. That's not really a question, but at least our moms like us. Feel free to sen
 
 = 1.2.0 =
 * Add initial steps towards add-on friendliness
+* Add extensible settings page
 
 = 1.1.0 =
 * Recrop existing cropped thumbnail sizes to match focal point

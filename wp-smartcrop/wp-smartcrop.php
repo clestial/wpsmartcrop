@@ -3,7 +3,7 @@
   Plugin Name: WP SmartCrop
   Plugin URI: http://www.wpsmartcrop.com/
   Description: Style your images exactly how you want them to appear, for any screen size, and never get a cut-off face.
-  Version: 1.1.0
+  Version: 1.2.0
   Author: WP SmartCrop
   Author URI: http://www.wpsmartcrop.com
   License: GPLv2 or later
@@ -19,6 +19,7 @@ if( !class_exists('WP_Smart_Crop') ) {
 		private $focus_cache;
 		private $upload_focus = null;
 		private $upload_processors = false;
+		private $options;
 		private $debug_mode = true;
 
 		public static function Instance() {
@@ -30,14 +31,23 @@ if( !class_exists('WP_Smart_Crop') ) {
 		}
 
 		private function __construct() {
+			// Initialize Variables
 			$this->plugin_dir_path = plugin_dir_path( __FILE__ );
-			$this->plugin_dir_url = plugin_dir_url( __FILE__ );
-			$this->focus_cache = array();
-			// add_on options
-			add_action( 'admin_init', array( $this, 'register_upload_processor_stack' ) );
+			$this->plugin_dir_url  = plugin_dir_url( __FILE__ );
+			$this->focus_cache     = array();
+			$this->options         = get_option( 'wp-smartcrop-settings' );
+
+			// Plugin list links
+			add_filter( 'plugin_action_links_' . plugin_basename(__FILE__), array( $this, 'plugin_action_links' ) );
+
+			// Register Settings
+			add_action( 'admin_menu', array( $this, 'admin_menu' ) );
+			add_action( 'admin_init', array( $this, 'admin_init' ) );
+
+			// Upload Processing
 			add_filter( 'wp_handle_upload', array( $this, 'wp_handle_upload' ) );
-			add_action( 'add_attachment' , array( $this, 'add_attachment'  ) );
-			add_action( 'edit_attachment', array( $this, 'edit_attachment' ) );
+			add_action( 'add_attachment'  , array( $this, 'add_attachment'   ) );
+			add_action( 'edit_attachment' , array( $this, 'edit_attachment'  ) );
 
 			// Editor Functions
 			add_action( 'admin_head', array( $this, 'admin_head') );
@@ -55,10 +65,91 @@ if( !class_exists('WP_Smart_Crop') ) {
 			add_filter( 'the_content', array( $this, 'the_content' ), PHP_INT_MAX );
 		}
 
-		function register_upload_processor_stack() {
+		function plugin_action_links( $links ) {
+			$links[] = '<a href="'. esc_url( get_admin_url(null, 'options-general.php?page=wp-smartcrop') ) .'">Settings</a>';
+			$links[] = '<a href="http://www.wpsmartcrop.com/addons" target="_blank">Get Addons</a>';
+			return $links;
+		}
+
+		function admin_init() {
+			register_setting( 'wp-smartcrop', 'wp-smartcrop-settings', array( $this, 'settings_sanitization_callback' ) );
+			add_settings_section(
+				'wp-smartcrop-settings',
+				__( 'General Settings', 'wpsmartcrop' ),
+				array( $this, 'add_settings_section' ),
+				'wp-smartcrop'
+			);
+
+			add_settings_field(
+				'wp_smartcrop_disable_thumbnail_generation',
+				__( 'Thumbnail Generation', 'wpsmartcrop' ),
+				array( $this, 'wp_smartcrop_disable_thumbnail_generation' ),
+				'wp-smartcrop',
+				'wp-smartcrop-settings'
+			);
+
 			$upload_processors = apply_filters( 'wp_smartcrop_announce_upload_processors', array() );
 			// THIS IS WHERE WE EVENTUALLY SORT THE STACK ON THE BACK END
 			$this->upload_processors = $upload_processors;
+
+			do_action( 'wp_smartcrop_admin_init' );
+		}
+
+		function settings_sanitization_callback( $settings ) {
+			$sanitized = array();
+			if( isset( $settings['disable-thumbnails'] ) && $settings['disable-thumbnails'] ) {
+				$sanitized['disable-thumbnails'] = 1;
+			} else {
+				$sanitized['disable-thumbnails'] = 0;
+			}
+			return apply_filters( 'wp_smartcrop_sanitize_settings', $sanitized, $settings );
+		}
+
+		function add_settings_section() { }
+
+		function wp_smartcrop_disable_thumbnail_generation() {
+			$disable_thumbs = 0;
+			if( isset( $this->options['disable-thumbnails'] ) ) {
+				$disable_thumbs = $this->options['disable-thumbnails'];
+			}
+			?>
+			<input type='checkbox' name='wp-smartcrop-settings[disable-thumbnails]' <?php checked( $disable_thumbs, 1 ); ?> value='1'>
+			<label for='wp-smartcrop-settings[disable-thumbnails]'><?php _e( 'Disable thumbnail generation (not recommended)' ); ?></label>
+			<p><em>
+				<?php
+				_e('Disabling thumbnail generation allows you to manage legacy thumbnail cropping with other plugins, such as Manual Image Crop.');
+				echo " ";
+				_e('It also will prevent conflicts with plugins like Jetpack\'s Photon CDN, which sadly break thumbnail regeneration.');
+				?></em></p>
+			<?php
+		}
+
+		function admin_menu() {
+			add_submenu_page(
+				'tools.php',
+				'WP SmartCrop',
+				'WP SmartCrop',
+				'manage_options',
+				'wp-smartcrop',
+				array( $this, 'submenu_page' )
+			);
+
+			do_action( 'wp_smartcrop_admin_menu' );
+		}
+
+		function submenu_page() {
+			?>
+			<form action='options.php' method='post'>
+				<div class='wrap'>
+					<h1>WP SmartCrop</h1>
+					<?php
+					settings_fields( 'wp-smartcrop' );
+					do_settings_sections( 'wp-smartcrop' );
+					submit_button();
+					?>
+				</div>
+			</form>
+			<?php
 		}
 
 		function wp_handle_upload( $file ) {
@@ -174,7 +265,9 @@ if( !class_exists('WP_Smart_Crop') ) {
 				if( ( $new_enabled != $old_enabled ) || ( serialize( $new_focus ) != serialize( $old_focus ) ) ) {
 					update_post_meta( $attachment_id, '_wpsmartcrop_enabled', $new_enabled );
 					update_post_meta( $attachment_id, '_wpsmartcrop_image_focus', $new_focus );
-					$this->regenerate_thumbnails( $attachment_id );
+					if( !( isset( $this->options['disable-thumbnails'] ) && $this->options['disable-thumbnails'] ) ) {
+						$this->regenerate_thumbnails( $attachment_id );
+					}
 				}
 			}
 		}
@@ -186,7 +279,7 @@ if( !class_exists('WP_Smart_Crop') ) {
 
 		function image_resize_dimensions( $old_val, $orig_w, $orig_h, $dest_w, $dest_h, $crop ) {
 			// if we aren't cropping or we have no id to work with, just return
-			if( $crop && $this->current_image ) {
+			if( $crop && $this->current_image && !( isset( $this->options['disable-thumbnails'] ) && $this->options['disable-thumbnails'] ) ) {
 				// if we have no height or cropping is unnecessary, just return
 				if( ( $orig_h * $dest_h ) && ( $orig_w / $orig_h ) != ( $dest_w / $dest_h ) ) {
 					$id = $this->current_image;
