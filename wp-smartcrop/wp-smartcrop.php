@@ -20,7 +20,7 @@ if( !class_exists('WP_Smart_Crop') ) {
 		private $upload_focus = null;
 		private $upload_processors = false;
 		private $options;
-		private $debug_mode = true;
+		private $debug_mode = false;
 
 		public static function Instance() {
 			static $instance = null;
