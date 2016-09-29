@@ -114,7 +114,7 @@ jQuery(document).ready(function($) {
 	}
 	$('img.wpsmartcrop-image').each(function() {
 		var $this = $(this);
-		$this.next('wpsmartcrop-overlay').remove();
+		$this.next('.wpsmartcrop-overlay').remove();
 		var natural_dims  = [
 			( $this[0].naturalWidth  ) ? $this[0].naturalWidth  : $this[0].getAttribute('width'),
 			( $this[0].naturalHeight ) ? $this[0].naturalHeight : $this[0].getAttribute('height')
@@ -125,7 +125,9 @@ jQuery(document).ready(function($) {
 			var $image_overlay = $('<div></div>').addClass('wpsmartcrop-overlay').append($clone);
 			$image_overlay.insertAfter($this);
 		}
-		recrop_images( $this );
+		setTimeout(function() {
+			recrop_images( $this );
+		}, 50);
 		var resizer_timeout = false;
 		$(window).resize(function() {
 			clearTimeout( resizer_timeout );
